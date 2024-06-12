@@ -1,0 +1,77 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+entity i2c_initializer is
+    port (
+        clk          : in std_logic;  -- System clock
+        start        : in std_logic;  -- Signal to start initialization
+        i2c_busy     : in std_logic;  -- I2C busy signal
+        i2c_done     : in std_logic;  -- I2C transaction done signal
+        i2c_send_flag: out std_logic; -- Flag to initiate I2C send
+        i2c_addr     : out std_logic_vector(7 downto 0); -- I2C address
+        i2c_data     : out std_logic_vector(15 downto 0); -- I2C data
+        init_done    : out std_logic  -- Initialization done signal
+    );
+end i2c_initializer;
+
+architecture Behavioral of i2c_initializer is
+    type command_array_type is array (0 to 4) of std_logic_vector(15 downto 0);
+
+    -- Define the initialization commands
+    constant INIT_COMMANDS: command_array_type := (
+        x"3400", -- Command 0
+        x"3404", -- Command 1
+        x"3420", -- Command 2
+        x"3410", -- Command 3
+        x"3460"  -- Command 4
+    );
+
+    signal i2c_init_index: integer range 0 to 5 := 0;
+    type i2c_state_type is (IDLE, INIT, SEND, I2C_WAIT);
+    signal i2c_state: i2c_state_type := IDLE;
+
+begin
+    process (clk)
+    begin
+        if rising_edge(clk) then
+            case i2c_state is
+                when IDLE =>
+                    if start = '1' then
+                        i2c_init_index <= 0;
+                        i2c_state <= INIT;
+                        init_done <= '0';
+                    else
+                        init_done <= '1'; -- Signal that initialization is complete
+                    end if;
+
+                when INIT =>
+                    if i2c_init_index < 5 then
+                        i2c_addr <= INIT_COMMANDS(i2c_init_index)(15 downto 8); -- Address part
+                        i2c_data <= "00000000" & INIT_COMMANDS(i2c_init_index)(7 downto 0); -- Data part with 8 leading zeros
+                        i2c_send_flag <= '1';
+                        i2c_state <= SEND;
+                    else
+                        init_done <= '1';
+                        i2c_state <= IDLE;
+                    end if;
+
+                when SEND =>
+                    if i2c_done = '1' then
+                        i2c_send_flag <= '0';
+                        i2c_init_index <= i2c_init_index + 1;
+                        i2c_state <= I2C_WAIT;
+                    end if;
+
+                when I2C_WAIT =>
+                    if i2c_busy = '0' then
+                        i2c_state <= INIT;
+                    end if;
+
+                when others =>
+                    i2c_state <= IDLE;
+            end case;
+        end if;
+    end process;
+
+end Behavioral;
